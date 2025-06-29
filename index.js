@@ -250,13 +250,13 @@ app.get("/api/student-menu", async (req, res) => {
     return res.status(400).json({ error: "Mess name is required." });
   }
 
-  // Get current date in 'dd-MMMM-yyyy' format to match your stored format
-  const today = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  })
-    .format(new Date())
+  const today = new Date()
+    .toLocaleDateString("en-GB", {
+      timeZone: "Asia/Karachi", // Or your actual time zone
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    })
     .replace(/ /g, "-");
 
   try {
