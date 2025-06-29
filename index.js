@@ -220,7 +220,7 @@ app.put("/api/menu", async (req, res) => {
 
   try {
     const updatedMenu = await meneu.findOneAndUpdate(
-      { date },
+      { mess, date }, // ✅ Corrected: match by both
       {
         mess,
         date,
@@ -241,6 +241,7 @@ app.put("/api/menu", async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 });
+
 // -------------------------------------------------------------------------------
 // Student page routes
 app.get("/api/student-menu", async (req, res) => {
@@ -252,7 +253,7 @@ app.get("/api/student-menu", async (req, res) => {
 
   const today = new Date()
     .toLocaleDateString("en-GB", {
-      timeZone: "Asia/Karachi", // Or your actual time zone
+      timeZone: "Asia/Karachi",
       day: "2-digit",
       month: "long",
       year: "numeric",
