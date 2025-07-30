@@ -8,64 +8,6 @@ const Food_items = require("./fooditems");
 const meneu = require("./FoodMeneue");
 require("dotenv").config();
 
-// Maintenance Mode Middleware (HTML Response)
-app.use((req, res) => {
-  res.status(503).send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Site Under Maintenance</title>
-      <style>
-        body {
-          margin: 0;
-          padding: 0;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-          background-color: #f7f7f7;
-          color: #333;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          text-align: center;
-        }
-
-        .container {
-          background-color: white;
-          padding: 40px;
-          border-radius: 12px;
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-          font-size: 2.5rem;
-          margin-bottom: 20px;
-        }
-
-        p {
-          font-size: 1.1rem;
-          margin-bottom: 10px;
-        }
-
-        .highlight {
-          color: #e67e22;
-          font-weight: bold;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <h1>🚧 We’ll be back soon!</h1>
-        <p>Our backend is currently under <span class="highlight">scheduled maintenance</span>.</p>
-        <p>Please check back in a while.</p>
-        <p>— Team Railway Server</p>
-      </div>
-    </body>
-    </html>
-  `);
-});
-
 // -------------------------------------------------------------------------------
 
 const app = express();
