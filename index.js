@@ -6,6 +6,7 @@ const directive = require("./Directives");
 const Admin = require("./Admin");
 const Food_items = require("./fooditems");
 const meneu = require("./FoodMeneue");
+const logs = require("./logs");
 require("dotenv").config();
 
 // -------------------------------------------------------------------------------
@@ -220,7 +221,7 @@ app.put("/api/menu", async (req, res) => {
 
   try {
     const updatedMenu = await meneu.findOneAndUpdate(
-      { mess, date }, // ✅ Corrected: match by both
+      { mess, date },
       {
         mess,
         date,
@@ -277,6 +278,16 @@ app.get("/api/student-menu", async (req, res) => {
 // -------------------------------------------------------------------------------
 app.get("/api/mess", async (req, res) => {
   try {
+    await logs.create({
+      ip: req.ip,
+      userAgent: req.get("User-Agent"),
+      endpoint: "/api/mess",
+      locationHint: "Unknown",
+    });
+  } catch (logErr) {
+    console.error("StudentView logging failed:", logErr);
+  }
+  try {
     const names = await Admin.find({}, { name: 1, _id: 0 });
     res.json(names);
   } catch (err) {
@@ -286,6 +297,9 @@ app.get("/api/mess", async (req, res) => {
 });
 
 // -------------------------------------------------------------------------------
+
+// -------------------------------------------------------------------------------
+
 app.listen(5000, () => {
   console.log("Server is running on port 5000");
 });
