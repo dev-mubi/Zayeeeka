@@ -7,8 +7,13 @@ const Admin = require("./Admin");
 const Food_items = require("./fooditems");
 const meneu = require("./FoodMeneue");
 const logs = require("./logs");
+const user = require("./UserModel");
 require("dotenv").config();
 
+//---
+const bcrypt = require("bcrypt");
+const saltRounds = 11;
+const validator = require("validator");
 // -------------------------------------------------------------------------------
 
 const app = express();
@@ -276,28 +281,89 @@ app.get("/api/student-menu", async (req, res) => {
 });
 
 // -------------------------------------------------------------------------------
-app.get("/api/mess", async (req, res) => {
+app.post("/signupstd", async (req, res) => {
+  const { name, email, password, pass2 } = req.body;
+
+  const allowedDomain = "@cuiatd.edu.pk";
+
+  if (
+    validator.isEmpty(name) ||
+    validator.isEmpty(email) ||
+    validator.isEmpty(password) ||
+    !validator.isLength(password, { min: 8 }) ||
+    validator.isEmpty(pass2) ||
+    password !== pass2 ||
+    !validator.isEmail(email) ||
+    !email.endsWith(allowedDomain)
+  ) {
+    return res.status(403).json({
+      status: "Denied",
+      message: `Invalid Input or email not from ${allowedDomain} domain`,
+    });
+  }
+
+  try {
+    const check = await user.findOne({ email });
+
+    if (check) {
+      return res.status(400).json("User already exists.");
+    }
+
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    const newUser = new user({ name, email, password: hashedPassword });
+    await newUser.save();
+
+    res.status(201).json("Operation Successful.");
+  } catch (err) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+//....
+app.post("/loginstd", async (req, res) => {
   try {
     await logs.create({
       ip: req.ip,
       userAgent: req.get("User-Agent"),
-      endpoint: "/api/mess",
+      endpoint: "/api/login",
       locationHint: "Unknown",
     });
   } catch (logErr) {
     console.error("StudentView logging failed:", logErr);
   }
+  const { email, pass } = req.body;
+
+  if (
+    validator.isEmpty(email) ||
+    validator.isEmpty(pass) ||
+    !validator.isEmail(email)
+  ) {
+    return res.status(403).json({
+      status: "Denied",
+      message: "Invalid Input",
+    });
+  }
   try {
-    const names = await Admin.find({}, { name: 1, _id: 0 });
-    res.json(names);
+    const check = await user.findOne({ email });
+
+    if (check) {
+      const isMatch = await bcrypt.compare(pass, check.password);
+
+      if (isMatch) {
+        return res
+          .status(201)
+          .json({ Status: "Access Granted", User: check.name });
+      } else {
+        return res.status(401).json("Incorrect Password");
+      }
+    } else {
+      return res.status(422).json("User Not Found");
+    }
   } catch (err) {
-    console.error("Failed to fetch admin names:", err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ message: "Server Error" });
   }
 });
-
-// -------------------------------------------------------------------------------
-
 // -------------------------------------------------------------------------------
 
 app.listen(5000, () => {
