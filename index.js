@@ -20,6 +20,8 @@ const validator = require("validator");
 
 const app = express();
 app.use(cors());
+app.set("trust proxy", true);
+
 app.use(express.json());
 // needed for HTML form POST on /verify/:userId
 app.use(express.urlencoded({ extended: true }));
@@ -251,15 +253,18 @@ app.post("/signupstd", async (req, res) => {
   const { name, email, password, pass2 } = req.body;
   const allowedDomain = "@cuiatd.edu.pk";
 
+  // Normalize email to lowercase once
+  const normalizedEmail = email.toLowerCase();
+
   if (
     validator.isEmpty(name) ||
-    validator.isEmpty(email) ||
+    validator.isEmpty(normalizedEmail) ||
     validator.isEmpty(password) ||
     !validator.isLength(password, { min: 8 }) ||
     validator.isEmpty(pass2) ||
     password !== pass2 ||
-    !validator.isEmail(email) ||
-    !email.endsWith(allowedDomain)
+    !validator.isEmail(normalizedEmail) ||
+    !normalizedEmail.endsWith(allowedDomain)
   ) {
     return res.status(403).json({
       status: "Denied",
@@ -268,26 +273,30 @@ app.post("/signupstd", async (req, res) => {
   }
 
   try {
-    const exists = await user.findOne({ email });
+    const exists = await user.findOne({ email: normalizedEmail });
     if (exists) return res.status(400).json("User already exists.");
 
     const hashedPassword = await bcrypt.hash(password, saltRounds);
-    const newUser = new user({ name, email, password: hashedPassword }); // verify defaults to false in schema
+    const newUser = new user({
+      name,
+      email: normalizedEmail, // stored in lowercase
+      password: hashedPassword,
+    }); // verify defaults to false in schema
+
     await newUser.save();
 
-    // --- send verification email (moved to email section at end via helper) ---
+    // Send verification email
     try {
       const base = process.env.BASE_URL || "http://localhost:5000";
       const verifyLink = `${base}/verify/${newUser._id}`;
       await app.locals.mailer.sendVerificationMail({
-        to: email,
+        to: normalizedEmail,
         name,
         link: verifyLink,
         fromName: "Zayeeka CUI - ATD",
       });
     } catch (mailErr) {
       console.error("Email send failed:", mailErr);
-      // You may choose to delete the user if email fails, but keeping for now.
     }
 
     res
@@ -312,7 +321,10 @@ app.post("/loginstd", async (req, res) => {
     console.error("StudentView logging failed:", logErr);
   }
 
-  const { email, pass } = req.body;
+  let { email, pass } = req.body;
+
+  // Normalize email to lowercase
+  email = email.toLowerCase();
 
   if (
     validator.isEmpty(email) ||
@@ -329,7 +341,7 @@ app.post("/loginstd", async (req, res) => {
     const found = await user.findOne({ email });
     if (!found) return res.status(422).json("User Not Found");
 
-    // enforce verification before password check (or after; both fine)
+    // enforce verification before password check
     if (!found.verify) {
       return res.status(406).json("Please verify your email first.");
     }
@@ -357,15 +369,15 @@ app.get("/api/mess", async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// EMAIL + VERIFICATION SECTION (kept at the END as requested)
+// EMAIL + VERIFICATION SECTION
 const nodemailer = require("nodemailer");
 
 // configure transporter with Gmail App Password
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.SMTP_USER, // your Gmail address
-    pass: process.env.SMTP_PASS, // your Gmail App Password
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 });
 
@@ -374,7 +386,7 @@ app.locals.mailer = {
   async sendVerificationMail({ to, name, link, fromName = "App" }) {
     const html = `
   <div style="font-family:Arial, sans-serif; max-width:600px; margin:0 auto; padding:20px; background-color:#f9f9f9; border-radius:8px; color:#333;">
-    <h2 style="color:#0b5ed7;">Welcome to Zaayeka</h2>
+    <h2 style="color:#0b5ed7;">Welcome to Zayeeka</h2>
 
     <p>Hi ${name},</p>
 
@@ -393,9 +405,12 @@ app.locals.mailer = {
 
     <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;" />
 
-    <p style="font-size:13px; color:#777;">
-      This is a system-generated email. Please do not reply directly. If you did not request this email or believe it's an error, you can safely ignore it.
+    <p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
+    This is a system-generated email. Please do not reply directly.  
+    The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
+    This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.
     </p>
+
 
     <p style="margin-top:30px;">Best regards,<br><strong>Mubashir Shahzaib</strong></p>
   </div>
