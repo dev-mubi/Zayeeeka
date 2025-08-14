@@ -366,6 +366,16 @@ app.post("/loginstd", async (req, res) => {
 });
 // -------------------------------------------------------------------------------
 
+app.get("/api/mess", async (req, res) => {
+  try {
+    const names = await Admin.find({}, { name: 1, _id: 0 });
+    res.json(names);
+  } catch (err) {
+    console.error("Failed to fetch admin names:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.listen(5000, () => {
   console.log("Server is running on port 5000");
 });
