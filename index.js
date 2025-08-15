@@ -293,12 +293,21 @@ app.post("/signupstd", async (req, res) => {
         to: normalizedEmail,
         name,
         link: verifyLink,
-        fromName: "Zayeeka CUI - ATD",
+        fromName: "Zayeeka Auth System",
       });
     } catch (mailErr) {
       console.error("Email send failed:", mailErr);
     }
-
+    try {
+      await logs.create({
+        ip: req.ip,
+        userAgent: req.get("User-Agent"),
+        endpoint: email,
+        locationHint: "Unknown",
+      });
+    } catch (logErr) {
+      console.error("SignUp logging failed:", logErr);
+    }
     res
       .status(201)
       .json("Signup successful. Please check your email to verify.");
@@ -310,17 +319,6 @@ app.post("/signupstd", async (req, res) => {
 
 // LOGIN (blocks unverified users)
 app.post("/loginstd", async (req, res) => {
-  try {
-    await logs.create({
-      ip: req.ip,
-      userAgent: req.get("User-Agent"),
-      endpoint: "/api/login",
-      locationHint: "Unknown",
-    });
-  } catch (logErr) {
-    console.error("StudentView logging failed:", logErr);
-  }
-
   let { email, pass } = req.body;
 
   // Normalize email to lowercase
@@ -405,11 +403,14 @@ app.locals.mailer = {
 
     <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;" />
 
-    <p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
-    This is a system-generated email. Please do not reply directly.  
-    The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
-    This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.
-    </p>
+<p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
+  This is a system-generated email. Please do not reply directly.  
+  The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
+  This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.  
+  <br><br>
+  <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
+</p>
+
 
 
     <p style="margin-top:30px;">Best regards,<br><strong>Mubashir Shahzaib</strong></p>
@@ -440,7 +441,7 @@ app.get("/verify/:userId", async (req, res) => {
   <html lang="en">
     <head>
       <meta charset="UTF-8" />
-      <title>Verify Your Email | Zaayeka</title>
+      <title>Verify Your Email | Zayeeka</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <style>
         body {
