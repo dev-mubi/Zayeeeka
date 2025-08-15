@@ -295,6 +295,7 @@ app.post("/signupstd", async (req, res) => {
         link: verifyLink,
         fromName: "Zayeeka Auth System",
       });
+      console.log("Email sent to: ", normalizedEmail);
     } catch (mailErr) {
       console.error("Email send failed:", mailErr);
     }
@@ -403,13 +404,13 @@ app.locals.mailer = {
 
     <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;" />
 
-<p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
-  This is a system-generated email. Please do not reply directly.  
-  The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
-  This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.  
-  <br><br>
-  <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
-</p>
+    <p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
+    This is a system-generated email. Please do not reply directly.  
+    The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
+    This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.  
+    <br><br>
+    <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
+    </p>
 
 
 
