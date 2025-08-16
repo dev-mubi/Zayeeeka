@@ -9,6 +9,7 @@ const Food_items = require("./fooditems");
 const meneu = require("./FoodMeneue");
 const logs = require("./logs");
 const user = require("./UserModel");
+const portfolio = require("./portfolio");
 require("dotenv").config();
 
 // ---
@@ -527,6 +528,90 @@ app.post("/verify/:userId", async (req, res) => {
   } catch (err) {
     console.error("Verify error:", err);
     res.status(500).send("Something went wrong");
+  }
+});
+
+// portfolio route
+app.post("/portfolio", async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+
+    // Validate inputs
+    if (
+      validator.isEmpty(name || "") ||
+      validator.isEmpty(message || "") ||
+      validator.isEmpty(email || "")
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Name, email, and message are required." });
+    }
+
+    if (!validator.isEmail(email)) {
+      return res.status(400).json({ error: "Invalid email format." });
+    }
+
+    // Save to database
+    const newMessage = new portfolio({
+      name,
+      email,
+      message,
+      ip: req.ip,
+      userAgent: req.get("User-Agent"),
+    });
+
+    await newMessage.save();
+
+    // Send email notification
+    const mailOptions = {
+      from: process.env.SMTP_USER,
+      to: "fa23-bcs-065@cuiatd.edu.pk",
+      subject: "New Contact Form Submission - Portfolio Website",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px; background-color: #f9f9f9;">
+          <h2 style="color: #0b5ed7; margin-bottom: 15px;">New Contact Form Submission</h2>
+          <p style="font-size: 14px; color: #333;">
+            You have received a new message via your portfolio website. The details are as follows:
+          </p>
+
+          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr>
+              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Name:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Email:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${email}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Message:</td>
+              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${message}</td>
+            </tr>
+          </table>
+
+          <h3 style="margin-top: 25px; color: #0b5ed7;">Submission Metadata</h3>
+          <p style="font-size: 13px; color: #555;">
+            <strong>IP Address:</strong> ${req.ip}<br/>
+            <strong>Browser:</strong> ${req.get("User-Agent")}<br/>
+            <strong>Timestamp:</strong> ${new Date().toLocaleString()}
+          </p>
+
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;" />
+          <p style="font-size: 12px; color: #888; text-align: center;">
+            This is a system-generated email from your portfolio website for notification purposes only.
+          </p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log("Email Sent.");
+    res
+      .status(200)
+      .json({ message: "Message saved and notification sent successfully." });
+  } catch (err) {
+    console.error("Error saving message or sending email:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
