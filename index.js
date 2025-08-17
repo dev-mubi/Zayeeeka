@@ -10,6 +10,8 @@ const meneu = require("./FoodMeneue");
 const logs = require("./logs");
 const user = require("./UserModel");
 const portfolio = require("./portfolio");
+const WeatherLog = require("./WeatherLog");
+
 require("dotenv").config();
 
 // ---
@@ -696,6 +698,38 @@ app.post("/portfolio", async (req, res) => {
   } catch (err) {
     console.error("Error in /portfolio:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// log weather visit (city/country/coords + IP, UA; timestamps via schema)
+app.post("/weather", async (req, res) => {
+  try {
+    const { city, country, coords } = req.body || {};
+
+    const doc = {
+      city: city ?? null,
+      country: country ?? null,
+      ip: req.ip, // <-- as requested
+      userAgent: req.get("User-Agent") || null,
+    };
+
+    // add coords only if both present + numeric
+    if (coords && coords.lat != null && coords.lon != null) {
+      const lat = Number(coords.lat);
+      const lon = Number(coords.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        doc.coords = { lat, lon };
+        // optional GeoJSON field (fits schema)
+        doc.location = { type: "Point", coordinates: [lon, lat] };
+      }
+    }
+
+    const saved = await WeatherLog.create(doc);
+    res.status(201).json({ message: "Location logged", id: saved._id });
+  } catch (err) {
+    console.error("Error in /weather:", err);
+    res.status(500).json({ error: "Server error" });
   }
 });
 
