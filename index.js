@@ -539,79 +539,163 @@ app.post("/portfolio", async (req, res) => {
     // Validate inputs
     if (
       validator.isEmpty(name || "") ||
-      validator.isEmpty(message || "") ||
-      validator.isEmpty(email || "")
+      validator.isEmpty(email || "") ||
+      validator.isEmpty(message || "")
     ) {
       return res
         .status(400)
         .json({ error: "Name, email, and message are required." });
     }
-
     if (!validator.isEmail(email)) {
       return res.status(400).json({ error: "Invalid email format." });
     }
 
     // Save to database
     const newMessage = new portfolio({
-      name,
-      email,
-      message,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      message: message.trim(),
       ip: req.ip,
       userAgent: req.get("User-Agent"),
     });
-
     await newMessage.save();
 
-    // Send email notification
-    const mailOptions = {
+    // Admin notification
+    const adminMail = {
       from: process.env.SMTP_USER,
       to: "fa23-bcs-065@cuiatd.edu.pk",
       subject: "New Contact Form Submission - Portfolio Website",
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 6px; padding: 20px; background-color: #f9f9f9;">
-          <h2 style="color: #0b5ed7; margin-bottom: 15px;">New Contact Form Submission</h2>
-          <p style="font-size: 14px; color: #333;">
-            You have received a new message via your portfolio website. The details are as follows:
-          </p>
+  <div style="font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+    <!-- Header -->
+    <div style="background:#0b5ed7; color:#ffffff; padding:12px 18px; font-weight:600; font-size:16px;">
+      Portfolio Website — New Contact Submission
+    </div>
 
-          <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-            <tr>
-              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Name:</td>
-              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${name}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Email:</td>
-              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${email}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px; font-weight: bold; border-bottom: 1px solid #ddd;">Message:</td>
-              <td style="padding: 8px; border-bottom: 1px solid #ddd;">${message}</td>
-            </tr>
-          </table>
+    <!-- Intro -->
+    <div style="padding:20px 18px;">
+      <p style="margin:0 0 14px 0; font-size:14px; color:#334155;">
+        A new message was submitted via the contact form. Details are below.
+      </p>
 
-          <h3 style="margin-top: 25px; color: #0b5ed7;">Submission Metadata</h3>
-          <p style="font-size: 13px; color: #555;">
-            <strong>IP Address:</strong> ${req.ip}<br/>
-            <strong>Browser:</strong> ${req.get("User-Agent")}<br/>
-            <strong>Timestamp:</strong> ${new Date().toLocaleString()}
-          </p>
+      <!-- Primary details -->
+      <table style="width:100%; border-collapse:collapse; margin:10px 0 6px 0;">
+        <tr>
+          <td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Name</td>
+          <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${name}</td>
+        </tr>
+        <tr>
+          <td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Email</td>
+          <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${email}</td>
+        </tr>
+      </table>
 
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;" />
-          <p style="font-size: 12px; color: #888; text-align: center;">
-            This is a system-generated email from your portfolio website for notification purposes only.
-          </p>
+      <!-- Message block -->
+      <div style="margin-top:14px;">
+        <div style="font-weight:600; color:#111827; margin-bottom:6px; font-size:13px;">Message</div>
+        <div style="padding:12px; background:#ffffff; border:1px solid #e5e7eb; border-radius:6px; font-size:14px; color:#374151;">
+          <pre style="margin:0; white-space:pre-wrap; word-wrap:break-word; font-family:inherit; line-height:1.55;">${message}</pre>
+        </div>
+      </div>
+
+      <!-- Metadata -->
+      <div style="margin-top:18px;">
+        <div style="font-weight:600; color:#0b5ed7; margin-bottom:8px; font-size:13px;">Submission Metadata</div>
+        <table style="width:100%; border-collapse:collapse;">
+          <tr>
+            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">IP Address</td>
+            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${
+              req.ip
+            }</td>
+          </tr>
+          <tr>
+            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Browser</td>
+            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${req.get(
+              "User-Agent"
+            )}</td>
+          </tr>
+          <tr>
+            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Timestamp</td>
+            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${new Date().toLocaleString()}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Footer note -->
+    <div style="padding:10px 16px; background:#fafbfc; border-top:1px solid #e5e7eb; text-align:center; font-size:12px; color:#667085;">
+      This is a system-generated notification from your portfolio website.
+    </div>
+  </div>
+`,
+    };
+
+    // User confirmation
+    const userMail = {
+      from: process.env.SMTP_USER,
+      to: email,
+      subject: "Confirmation: Your message has been received",
+      html: `
+        <div style="background:#f5f7fb; padding:24px;">
+          <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e6e8f0; border-radius:8px; overflow:hidden; font-family:Arial, Helvetica, sans-serif;">
+            
+            <!-- Header -->
+            <div style="background:#0b5ed7; color:#ffffff; padding:14px 20px; font-weight:600; font-size:16px;">
+              Mubashir Shahzaib — Portfolio
+            </div>
+
+            <!-- Body -->
+            <div style="padding:22px 20px;">
+              <h2 style="margin:0 0 10px 0; color:#0b5ed7; font-size:20px; font-weight:700;">
+                Your message has been received
+              </h2>
+
+              <p style="margin:0 0 12px 0; font-size:15px; color:#333333;">
+                Hi ${name},
+              </p>
+
+              <p style="margin:0 0 12px 0; font-size:15px; color:#333333;">
+                Thank you for reaching out via my portfolio website. I’ve received your message and appreciate you taking the time to connect.
+              </p>
+
+              <p style="margin:0 0 16px 0; font-size:15px; color:#333333;">
+                I review every submission personally. If your inquiry requires a response, I’ll get back to you at <strong>${email}</strong>.
+              </p>
+
+              <!-- Meta strip -->
+              <div style="margin:18px 0; padding:12px 14px; background:#f8fafc; border:1px solid #e5e7eb; border-left:4px solid #0b5ed7; border-radius:6px; font-size:14px; color:#374151;">
+                <div><strong>Submitted:</strong> ${new Date().toLocaleString()}</div>
+              </div>
+
+              <!-- Message echo -->
+              <div style="margin-top:14px;">
+                <div style="font-weight:600; color:#111827; margin-bottom:8px; font-size:14px;">Your message</div>
+                <div style="padding:12px; background:#ffffff; border:1px solid #e5e7eb; border-radius:6px; font-size:14px; color:#374151;">
+                  <pre style="margin:0; white-space:pre-wrap; font-family:inherit; line-height:1.5;">${message}</pre>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="padding:12px 20px; background:#fafbfc; border-top:1px solid #e6e8f0; font-size:12px; color:#667085; text-align:center;">
+              This is a system-generated confirmation from Mubashir Shahzaib’s portfolio contact form. Please do not reply to this email.
+            </div>
+          </div>
         </div>
       `,
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log("Email Sent.");
-    res
-      .status(200)
-      .json({ message: "Message saved and notification sent successfully." });
+    // Send emails (admin first, then user)
+    await transporter.sendMail(adminMail);
+    await transporter.sendMail(userMail);
+
+    console.log("Portfolio emails sent: admin + user confirmation.");
+    return res.status(200).json({
+      message: "Message saved. Notification and confirmation emails sent.",
+    });
   } catch (err) {
-    console.error("Error saving message or sending email:", err);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Error in /portfolio:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
