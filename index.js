@@ -257,16 +257,16 @@ app.post("/signupstd", async (req, res) => {
   const allowedDomain = "@cuiatd.edu.pk";
 
   // Normalize email to lowercase once
-  const normalizedEmail = email.toLowerCase();
+  const normalizedEmail = (email || "").toLowerCase();
 
   if (
-    validator.isEmpty(name) ||
-    validator.isEmpty(normalizedEmail) ||
-    validator.isEmpty(password) ||
-    !validator.isLength(password, { min: 8 }) ||
-    validator.isEmpty(pass2) ||
+    validator.isEmpty(name || "") ||
+    validator.isEmpty(normalizedEmail || "") ||
+    validator.isEmpty(password || "") ||
+    !validator.isLength(password || "", { min: 8 }) ||
+    validator.isEmpty(pass2 || "") ||
     password !== pass2 ||
-    !validator.isEmail(normalizedEmail) ||
+    !validator.isEmail(normalizedEmail || "") ||
     !normalizedEmail.endsWith(allowedDomain)
   ) {
     return res.status(403).json({
@@ -326,12 +326,12 @@ app.post("/loginstd", async (req, res) => {
   let { email, pass } = req.body;
 
   // Normalize email to lowercase
-  email = email.toLowerCase();
+  email = (email || "").toLowerCase();
 
   if (
-    validator.isEmpty(email) ||
-    validator.isEmpty(pass) ||
-    !validator.isEmail(email)
+    validator.isEmpty(email || "") ||
+    validator.isEmpty(pass || "") ||
+    !validator.isEmail(email || "")
   ) {
     return res.status(403).json({
       status: "Denied",
@@ -372,19 +372,72 @@ app.get("/api/mess", async (req, res) => {
 
 // -----------------------------------------------------------------------------
 // EMAIL + VERIFICATION SECTION
-const nodemailer = require("nodemailer");
+// New: Use Resend (HTTPS) to avoid SMTP timeouts. Fallback to Nodemailer if RESEND_API_KEY missing.
 
-// configure transporter with Gmail App Password
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
+const dns = require("dns").promises;
+
+const haveResend = !!process.env.RESEND_API_KEY;
+const resend = haveResend ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// optional SMTP fallback (local dev)
+let smtpTransport = null;
+async function makeSmtpTransportIfNeeded() {
+  if (smtpTransport || haveResend) return;
+  try {
+    // Force IPv4 + STARTTLS (587) for better compatibility
+    let host = "smtp.gmail.com";
+    try {
+      const [ipv4] = await dns.resolve4("smtp.gmail.com");
+      host = ipv4;
+    } catch (_) {}
+
+    smtpTransport = nodemailer.createTransport({
+      host,
+      port: 587,
+      secure: false,
+      requireTLS: true,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+    });
+  } catch (e) {
+    console.error("Failed to init SMTP fallback:", e);
+  }
+}
 
 // minimal mailer helper attached to app.locals so routes above can call it
 app.locals.mailer = {
+  async send({ to, subject, html, replyTo, fromName = "App" }) {
+    // Prefer Resend (HTTPS)
+    if (haveResend && resend) {
+      const fromHeader =
+        process.env.MAIL_FROM || `${fromName} <onboarding@resend.dev>`;
+      return await resend.emails.send({
+        from: fromHeader,
+        to,
+        subject,
+        html,
+        ...(replyTo ? { replyTo } : {}),
+      });
+    }
+
+    // Fallback to Nodemailer SMTP (for local/dev)
+    await makeSmtpTransportIfNeeded();
+    if (!smtpTransport) throw new Error("No mail transport available");
+    return await smtpTransport.sendMail({
+      from: `"${fromName}" <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html,
+      ...(replyTo ? { replyTo } : {}),
+    });
+  },
+
   async sendVerificationMail({ to, name, link, fromName = "App" }) {
     const html = `
   <div style="font-family:Arial, sans-serif; max-width:600px; margin:0 auto; padding:20px; background-color:#f9f9f9; border-radius:8px; color:#333;">
@@ -415,17 +468,14 @@ app.locals.mailer = {
     <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
     </p>
 
-
-
     <p style="margin-top:30px;">Best regards,<br><strong>Mubashir Shahzaib</strong></p>
   </div>
 `;
-
-    await transporter.sendMail({
-      from: `"${fromName}" <${process.env.SMTP_USER}>`,
+    return await this.send({
       to,
       subject: "Verify your email",
       html,
+      fromName,
     });
   },
 };
@@ -459,9 +509,7 @@ app.get("/verify/:userId", async (req, res) => {
           box-shadow: 0 4px 16px rgba(0,0,0,0.1);
           background: #ffffff;
         }
-        h2 {
-          color: #0b5ed7;
-        }
+        h2 { color: #0b5ed7; }
         input[type="password"] {
           width: 100%;
           padding: 10px;
@@ -479,9 +527,7 @@ app.get("/verify/:userId", async (req, res) => {
           font-size: 14px;
           cursor: pointer;
         }
-        button:hover {
-          background-color: #094bbf;
-        }
+        button:hover { background-color: #094bbf; }
         .note {
           font-size: 13px;
           color: #777;
@@ -548,7 +594,7 @@ app.post("/portfolio", async (req, res) => {
         .status(400)
         .json({ error: "Name, email, and message are required." });
     }
-    if (!validator.isEmail(email)) {
+    if (!validator.isEmail(email || "")) {
       return res.status(400).json({ error: "Invalid email format." });
     }
 
@@ -562,25 +608,16 @@ app.post("/portfolio", async (req, res) => {
     });
     await newMessage.save();
 
-    // Admin notification
-    const adminMail = {
-      from: process.env.SMTP_USER,
-      to: "fa23-bcs-065@cuiatd.edu.pk",
-      subject: "New Contact Form Submission - Portfolio Website",
-      html: `
+    // Admin notification (unchanged HTML; send via app.locals.mailer)
+    const adminHtml = `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
-    <!-- Header -->
     <div style="background:#0b5ed7; color:#ffffff; padding:12px 18px; font-weight:600; font-size:16px;">
       Portfolio Website — New Contact Submission
     </div>
-
-    <!-- Intro -->
     <div style="padding:20px 18px;">
       <p style="margin:0 0 14px 0; font-size:14px; color:#334155;">
         A new message was submitted via the contact form. Details are below.
       </p>
-
-      <!-- Primary details -->
       <table style="width:100%; border-collapse:collapse; margin:10px 0 6px 0;">
         <tr>
           <td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Name</td>
@@ -591,16 +628,12 @@ app.post("/portfolio", async (req, res) => {
           <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${email}</td>
         </tr>
       </table>
-
-      <!-- Message block -->
       <div style="margin-top:14px;">
         <div style="font-weight:600; color:#111827; margin-bottom:6px; font-size:13px;">Message</div>
         <div style="padding:12px; background:#ffffff; border:1px solid #e5e7eb; border-radius:6px; font-size:14px; color:#374151;">
           <pre style="margin:0; white-space:pre-wrap; word-wrap:break-word; font-family:inherit; line-height:1.55;">${message}</pre>
         </div>
       </div>
-
-      <!-- Metadata -->
       <div style="margin-top:18px;">
         <div style="font-weight:600; color:#0b5ed7; margin-bottom:8px; font-size:13px;">Submission Metadata</div>
         <table style="width:100%; border-collapse:collapse;">
@@ -623,53 +656,33 @@ app.post("/portfolio", async (req, res) => {
         </table>
       </div>
     </div>
-
-    <!-- Footer note -->
     <div style="padding:10px 16px; background:#fafbfc; border-top:1px solid #e5e7eb; text-align:center; font-size:12px; color:#667085;">
       This is a system-generated notification from your portfolio website.
     </div>
   </div>
-`,
-    };
+`;
 
-    // User confirmation
-    const userMail = {
-      from: process.env.SMTP_USER,
-      to: email,
-      subject: "Confirmation: Your message has been received",
-      html: `
+    // User confirmation (unchanged HTML)
+    const userHtml = `
         <div style="background:#f5f7fb; padding:24px;">
           <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e6e8f0; border-radius:8px; overflow:hidden; font-family:Arial, Helvetica, sans-serif;">
-            
-            <!-- Header -->
             <div style="background:#0b5ed7; color:#ffffff; padding:14px 20px; font-weight:600; font-size:16px;">
               Mubashir Shahzaib — Portfolio
             </div>
-
-            <!-- Body -->
             <div style="padding:22px 20px;">
               <h2 style="margin:0 0 10px 0; color:#0b5ed7; font-size:20px; font-weight:700;">
                 Your message has been received
               </h2>
-
-              <p style="margin:0 0 12px 0; font-size:15px; color:#333333;">
-                Hi ${name},
-              </p>
-
+              <p style="margin:0 0 12px 0; font-size:15px; color:#333333;">Hi ${name},</p>
               <p style="margin:0 0 12px 0; font-size:15px; color:#333333;">
                 Thank you for reaching out via my portfolio website. I’ve received your message and appreciate you taking the time to connect.
               </p>
-
               <p style="margin:0 0 16px 0; font-size:15px; color:#333333;">
                 I review every submission personally. If your inquiry requires a response, I’ll get back to you at <strong>${email}</strong>.
               </p>
-
-              <!-- Meta strip -->
               <div style="margin:18px 0; padding:12px 14px; background:#f8fafc; border:1px solid #e5e7eb; border-left:4px solid #0b5ed7; border-radius:6px; font-size:14px; color:#374151;">
                 <div><strong>Submitted:</strong> ${new Date().toLocaleString()}</div>
               </div>
-
-              <!-- Message echo -->
               <div style="margin-top:14px;">
                 <div style="font-weight:600; color:#111827; margin-bottom:8px; font-size:14px;">Your message</div>
                 <div style="padding:12px; background:#ffffff; border:1px solid #e5e7eb; border-radius:6px; font-size:14px; color:#374151;">
@@ -677,19 +690,28 @@ app.post("/portfolio", async (req, res) => {
                 </div>
               </div>
             </div>
-
-            <!-- Footer -->
             <div style="padding:12px 20px; background:#fafbfc; border-top:1px solid #e6e8f0; font-size:12px; color:#667085; text-align:center;">
               This is a system-generated confirmation from Mubashir Shahzaib’s portfolio contact form. Please do not reply to this email.
             </div>
           </div>
         </div>
-      `,
-    };
+      `;
 
-    // Send emails (admin first, then user)
-    await transporter.sendMail(adminMail);
-    await transporter.sendMail(userMail);
+    // Send emails via the mailer (HTTPS first, SMTP fallback)
+    await app.locals.mailer.send({
+      to: "fa23-bcs-065@cuiatd.edu.pk",
+      subject: "New Contact Form Submission - Portfolio Website",
+      html: adminHtml,
+      fromName: "Portfolio",
+    });
+
+    await app.locals.mailer.send({
+      to: email,
+      subject: "Confirmation: Your message has been received",
+      html: userHtml,
+      replyTo: email,
+      fromName: "Portfolio",
+    });
 
     console.log("Portfolio emails sent: admin + user confirmation.");
     return res.status(200).json({
