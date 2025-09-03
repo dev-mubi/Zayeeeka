@@ -699,7 +699,7 @@ app.post("/portfolio", async (req, res) => {
 
     // Send emails via the mailer (HTTPS first, SMTP fallback)
     await app.locals.mailer.send({
-      to: "fa23-bcs-065@cuiatd.edu.pk",
+      to: "mobishahzaib@gmail.com",
       subject: "New Contact Form Submission - Portfolio Website",
       html: adminHtml,
       fromName: "Portfolio",
