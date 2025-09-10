@@ -374,7 +374,7 @@ if (!process.env.RESEND_API_KEY) {
   throw new Error("RESEND_API_KEY is missing. Add it in your env.");
 }
 const resend = new Resend(process.env.RESEND_API_KEY);
-const ADMIN_TO = process.env.ADMIN_TO || "fa23-bcs-065@cuiatd.edu.pk";
+const ADMIN_TO = process.env.ADMIN_TO || "mobishahzaib@gmail.com";
 
 app.locals.mailer = {
   async send({ to, subject, html, replyTo, fromName = "App" }) {
