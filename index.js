@@ -20,13 +20,12 @@ const saltRounds = 11;
 const validator = require("validator");
 
 // -----------------------------------------------------------------------------
-
+// APP
 const app = express();
 app.use(cors());
 app.set("trust proxy", true);
 
 app.use(express.json());
-// needed for HTML form POST on /verify/:userId
 app.use(express.urlencoded({ extended: true }));
 
 mongoose.connect(process.env.MONGO_URI, {
@@ -43,12 +42,13 @@ app.post("/store-qr", async (req, res) => {
     await newQR.save();
     res.json({ message: "QR data saved successfully" });
   } catch (error) {
+    console.error("Failed to save QR data:", error);
     res.status(500).json({ error: "Failed to save QR data" });
   }
 });
 
 // -----------------------------------------------------------------------------
-// Admin login (unchanged; uses plain-text admin password as in your original)
+// Admin login (unchanged)
 app.post("/login", async (req, res) => {
   const { username, password } = req.body;
   const found = await Admin.findOne({ username });
@@ -152,7 +152,7 @@ app.get("/analytics", async (req, res) => {
       feedbacks.length === 0 ? 0 : (total / feedbacks.length).toFixed(2);
     res.json({
       averageRating,
-      ratingCounts: { 1: one, 2: two, 3: three, 4: four, 5: five },
+      ratingCounts: { 1: one, 2: two, 3: four, 5: five, 3: three }, // keep keys explicit
     });
   } catch (err) {
     console.error("Error in /analytics:", err);
@@ -249,14 +249,12 @@ app.get("/api/student-menu", async (req, res) => {
 
 // -----------------------------------------------------------------------------
 // STUDENT AUTH (Signup + Login)
-// NOTE: All email-related config and send logic is placed at the END.
 
 // SIGNUP (creates user with verify:false and sends verification email)
 app.post("/signupstd", async (req, res) => {
   const { name, email, password, pass2 } = req.body;
   const allowedDomain = "@cuiatd.edu.pk";
 
-  // Normalize email to lowercase once
   const normalizedEmail = (email || "").toLowerCase();
 
   if (
@@ -282,10 +280,9 @@ app.post("/signupstd", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     const newUser = new user({
       name,
-      email: normalizedEmail, // stored in lowercase
+      email: normalizedEmail,
       password: hashedPassword,
-    }); // verify defaults to false in schema
-
+    }); // verify defaults to false
     await newUser.save();
 
     // Send verification email
@@ -298,10 +295,11 @@ app.post("/signupstd", async (req, res) => {
         link: verifyLink,
         fromName: "Zayeeka Auth System",
       });
-      console.log("Email sent to: ", normalizedEmail);
+      console.log("Verification email sent to:", normalizedEmail);
     } catch (mailErr) {
       console.error("Email send failed:", mailErr);
     }
+
     try {
       await logs.create({
         ip: req.ip,
@@ -312,6 +310,7 @@ app.post("/signupstd", async (req, res) => {
     } catch (logErr) {
       console.error("SignUp logging failed:", logErr);
     }
+
     res
       .status(201)
       .json("Signup successful. Please check your email to verify.");
@@ -324,8 +323,6 @@ app.post("/signupstd", async (req, res) => {
 // LOGIN (blocks unverified users)
 app.post("/loginstd", async (req, res) => {
   let { email, pass } = req.body;
-
-  // Normalize email to lowercase
   email = (email || "").toLowerCase();
 
   if (
@@ -343,7 +340,6 @@ app.post("/loginstd", async (req, res) => {
     const found = await user.findOne({ email });
     if (!found) return res.status(422).json("User Not Found");
 
-    // enforce verification before password check
     if (!found.verify) {
       return res.status(406).json("Please verify your email first.");
     }
@@ -371,106 +367,59 @@ app.get("/api/mess", async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// EMAIL + VERIFICATION SECTION
-// New: Use Resend (HTTPS) to avoid SMTP timeouts. Fallback to Nodemailer if RESEND_API_KEY missing.
-
+// EMAIL + VERIFICATION SECTION (Resend only)
 const { Resend } = require("resend");
-const nodemailer = require("nodemailer");
-const dns = require("dns").promises;
 
-const haveResend = !!process.env.RESEND_API_KEY;
-const resend = haveResend ? new Resend(process.env.RESEND_API_KEY) : null;
-
-// optional SMTP fallback (local dev)
-let smtpTransport = null;
-async function makeSmtpTransportIfNeeded() {
-  if (smtpTransport || haveResend) return;
-  try {
-    // Force IPv4 + STARTTLS (587) for better compatibility
-    let host = "smtp.gmail.com";
-    try {
-      const [ipv4] = await dns.resolve4("smtp.gmail.com");
-      host = ipv4;
-    } catch (_) {}
-
-    smtpTransport = nodemailer.createTransport({
-      host,
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-    });
-  } catch (e) {
-    console.error("Failed to init SMTP fallback:", e);
-  }
+if (!process.env.RESEND_API_KEY) {
+  throw new Error("RESEND_API_KEY is missing. Add it in your env.");
 }
+const resend = new Resend(process.env.RESEND_API_KEY);
+const ADMIN_TO = process.env.ADMIN_TO || "fa23-bcs-065@cuiatd.edu.pk";
 
-// minimal mailer helper attached to app.locals so routes above can call it
 app.locals.mailer = {
   async send({ to, subject, html, replyTo, fromName = "App" }) {
-    // Prefer Resend (HTTPS)
-    if (haveResend && resend) {
-      const fromHeader =
-        process.env.MAIL_FROM || `${fromName} <onboarding@resend.dev>`;
-      return await resend.emails.send({
+    const fromHeader =
+      process.env.MAIL_FROM || `${fromName} <onboarding@resend.dev>`;
+
+    try {
+      const resp = await resend.emails.send({
         from: fromHeader,
-        to,
+        to, // string or array
         subject,
         html,
         ...(replyTo ? { replyTo } : {}),
       });
+      console.log("Resend send OK:", resp?.data?.id || resp);
+      return resp;
+    } catch (e) {
+      console.error("Resend send FAIL:", e?.message || e);
+      throw e;
     }
-
-    // Fallback to Nodemailer SMTP (for local/dev)
-    await makeSmtpTransportIfNeeded();
-    if (!smtpTransport) throw new Error("No mail transport available");
-    return await smtpTransport.sendMail({
-      from: `"${fromName}" <${process.env.SMTP_USER}>`,
-      to,
-      subject,
-      html,
-      ...(replyTo ? { replyTo } : {}),
-    });
   },
 
   async sendVerificationMail({ to, name, link, fromName = "App" }) {
     const html = `
   <div style="font-family:Arial, sans-serif; max-width:600px; margin:0 auto; padding:20px; background-color:#f9f9f9; border-radius:8px; color:#333;">
     <h2 style="color:#0b5ed7;">Welcome to Zayeeka</h2>
-
     <p>Hi ${name},</p>
-
     <p>Thank you for signing up! You're just one step away from activating your account.</p>
-
     <p>Please click the button below to verify your email:</p>
-
     <p style="text-align:center;">
-      <a href="${link}" style="background:#0b5ed7; color:#fff; padding:12px 20px; border-radius:6px; text-decoration:none; display:inline-block; font-weight:bold;">
+      <a href="\${link}" style="background:#0b5ed7; color:#fff; padding:12px 20px; border-radius:6px; text-decoration:none; display:inline-block; font-weight:bold;">
         Verify My Email
       </a>
     </p>
-
     <p>If the button doesn't work, copy and paste this link into your browser:</p>
-    <p style="word-break:break-all;"><code>${link}</code></p>
-
+    <p style="word-break:break-all;"><code>\${link}</code></p>
     <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;" />
-
     <p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
-    This is a system-generated email. Please do not reply directly.  
-    The verification link below grants access to activate your account. By clicking it, you confirm that you requested this action, trust the authenticity of this message, and accept full responsibility for the outcome.  
-    This message was sent exclusively to the address provided at signup. If you did not initiate this request, do not click the link.  
-    <br><br>
-    <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
+      This is a system-generated email. Please do not reply directly.<br/>
+      <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
     </p>
-
     <p style="margin-top:30px;">Best regards,<br><strong>Mubashir Shahzaib</strong></p>
   </div>
-`;
+`.replace(/\${link}/g, link); // ensure literal replacement
+
     return await this.send({
       to,
       subject: "Verify your email",
@@ -480,9 +429,9 @@ app.locals.mailer = {
   },
 };
 
-// 1) GET /verify/:userId -> serves a tiny password form
+// -----------------------------------------------------------------------------
+// VERIFY PAGES
 app.get("/verify/:userId", async (req, res) => {
-  // You could gate this if user already verified
   const { userId } = req.params;
   const u = await user.findById(userId).lean();
   if (!u) return res.status(404).send("User not found");
@@ -498,63 +447,30 @@ app.get("/verify/:userId", async (req, res) => {
       <title>Verify Your Email | Zayeeka</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <style>
-        body {
-          font-family: Arial, sans-serif;
-          background-color: #f7f7f7;
-          color: #333;
-          max-width: 420px;
-          margin: 60px auto;
-          padding: 30px;
-          border-radius: 8px;
-          box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-          background: #ffffff;
-        }
+        body { font-family: Arial, sans-serif; background-color: #f7f7f7; color: #333; max-width: 420px; margin: 60px auto; padding: 30px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.1); background: #ffffff; }
         h2 { color: #0b5ed7; }
-        input[type="password"] {
-          width: 100%;
-          padding: 10px;
-          margin: 12px 0 20px 0;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-          font-size: 14px;
-        }
-        button {
-          background-color: #0b5ed7;
-          color: white;
-          padding: 10px 16px;
-          border: none;
-          border-radius: 4px;
-          font-size: 14px;
-          cursor: pointer;
-        }
+        input[type="password"] { width: 100%; padding: 10px; margin: 12px 0 20px 0; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        button { background-color: #0b5ed7; color: white; padding: 10px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
         button:hover { background-color: #094bbf; }
-        .note {
-          font-size: 13px;
-          color: #777;
-          margin-top: 30px;
-        }
+        .note { font-size: 13px; color: #777; margin-top: 30px; }
       </style>
     </head>
     <body>
       <h2>Email Verification</h2>
       <p>To verify your email address <strong>${u.email}</strong>, please confirm your password below.</p>
-
       <form method="POST" action="/verify/${userId}">
         <label for="password">Confirm Password</label>
         <input name="password" id="password" type="password" required placeholder="Enter the password you chose during signup" />
         <button type="submit">Verify My Email</button>
       </form>
-
       <p class="note">
-        This is <strong>not</strong> your institutional email password — it’s the password you created when registering your Zaayeka account.<br/>
-        If you did not request this verification, you can safely ignore this page.
+        This is <strong>not</strong> your institutional email password — it’s the password you created when registering your Zaayeka account.
       </p>
     </body>
   </html>
 `);
 });
 
-// 2) POST /verify/:userId -> compares password then flips verify:true
 app.post("/verify/:userId", async (req, res) => {
   const { userId } = req.params;
   const { password } = req.body;
@@ -579,7 +495,8 @@ app.post("/verify/:userId", async (req, res) => {
   }
 });
 
-// portfolio route
+// -----------------------------------------------------------------------------
+// portfolio route — send 2 emails (admin + user). Each has its own try/catch so one failing doesn’t block the other.
 app.post("/portfolio", async (req, res) => {
   try {
     const { name, email, message } = req.body;
@@ -608,7 +525,7 @@ app.post("/portfolio", async (req, res) => {
     });
     await newMessage.save();
 
-    // Admin notification (unchanged HTML; send via app.locals.mailer)
+    // Admin notification
     const adminHtml = `
   <div style="font-family: Arial, Helvetica, sans-serif; max-width: 640px; margin: 0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
     <div style="background:#0b5ed7; color:#ffffff; padding:12px 18px; font-weight:600; font-size:16px;">
@@ -662,7 +579,6 @@ app.post("/portfolio", async (req, res) => {
   </div>
 `;
 
-    // User confirmation (unchanged HTML)
     const userHtml = `
         <div style="background:#f5f7fb; padding:24px;">
           <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e6e8f0; border-radius:8px; overflow:hidden; font-family:Arial, Helvetica, sans-serif;">
@@ -697,25 +613,36 @@ app.post("/portfolio", async (req, res) => {
         </div>
       `;
 
-    // Send emails via the mailer (HTTPS first, SMTP fallback)
-    await app.locals.mailer.send({
-      to: "mobishahzaib@gmail.com",
-      subject: "New Contact Form Submission - Portfolio Website",
-      html: adminHtml,
-      fromName: "Portfolio",
-    });
+    // Send emails (admin + user) with separate try/catch so one failing doesn't block the other
+    try {
+      await app.locals.mailer.send({
+        to: ADMIN_TO, // set ADMIN_TO env to your Gmail for reliability
+        subject: "New Contact Form Submission - Portfolio Website",
+        html: adminHtml,
+        fromName: "Portfolio",
+        replyTo: email, // so replying to admin noti goes to the user
+      });
+      console.log("✅ Admin notification sent to:", ADMIN_TO);
+    } catch (e) {
+      console.error("❌ Admin notification failed:", e?.message || e);
+    }
 
-    await app.locals.mailer.send({
-      to: email,
-      subject: "Confirmation: Your message has been received",
-      html: userHtml,
-      replyTo: email,
-      fromName: "Portfolio",
-    });
+    try {
+      await app.locals.mailer.send({
+        to: email,
+        subject: "Confirmation: Your message has been received",
+        html: userHtml,
+        replyTo: ADMIN_TO, // replies from the user go to you
+        fromName: "Portfolio",
+      });
+      console.log("✅ User confirmation sent to:", email);
+    } catch (e) {
+      console.error("❌ User confirmation failed:", e?.message || e);
+    }
 
-    console.log("Portfolio emails sent: admin + user confirmation.");
     return res.status(200).json({
-      message: "Message saved. Notification and confirmation emails sent.",
+      message:
+        "Message saved. Notification and confirmation emails attempted (check logs).",
     });
   } catch (err) {
     console.error("Error in /portfolio:", err);
@@ -724,7 +651,7 @@ app.post("/portfolio", async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// log weather visit (city/country/coords + IP, UA; timestamps via schema)
+// log weather visit
 app.post("/weather", async (req, res) => {
   try {
     const { city, country, coords } = req.body || {};
@@ -732,17 +659,15 @@ app.post("/weather", async (req, res) => {
     const doc = {
       city: city ?? null,
       country: country ?? null,
-      ip: req.ip, // <-- as requested
+      ip: req.ip,
       userAgent: req.get("User-Agent") || null,
     };
 
-    // add coords only if both present + numeric
     if (coords && coords.lat != null && coords.lon != null) {
       const lat = Number(coords.lat);
       const lon = Number(coords.lon);
       if (Number.isFinite(lat) && Number.isFinite(lon)) {
         doc.coords = { lat, lon };
-        // optional GeoJSON field (fits schema)
         doc.location = { type: "Point", coordinates: [lon, lat] };
       }
     }
