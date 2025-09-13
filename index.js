@@ -264,8 +264,8 @@ app.post("/signupstd", async (req, res) => {
     !validator.isLength(password || "", { min: 8 }) ||
     validator.isEmpty(pass2 || "") ||
     password !== pass2 ||
-    !validator.isEmail(normalizedEmail || "") ||
-    !normalizedEmail.endsWith(allowedDomain)
+    !validator.isEmail(normalizedEmail || "")
+    // || !normalizedEmail.endsWith(allowedDomain)
   ) {
     return res.status(403).json({
       status: "Denied",
@@ -416,7 +416,7 @@ app.locals.mailer = {
       This is a system-generated email. Please do not reply directly.<br/>
       <strong>Disclaimer:</strong> Zayeeka is an independent student project and is not affiliated with, endorsed by, or accountable to COMSATS University Abbottabad in any official capacity.
     </p>
-    <p style="margin-top:30px;">Best regards,<br><strong>Mubashir Shahzaib</strong></p>
+    <p style="margin-top:30px;">Best regards,<br><strong>Zayeeka Team</strong></p>
   </div>
 `.replace(/\${link}/g, link); // ensure literal replacement
 
@@ -486,9 +486,7 @@ app.post("/verify/:userId", async (req, res) => {
     u.verify = true;
     await u.save();
 
-    res.send(
-      "Email verified successfully. You can now log in. Regards, Mubashir"
-    );
+    res.send("Email verified successfully. You can now log in. Regards,");
   } catch (err) {
     console.error("Verify error:", err);
     res.status(500).send("Something went wrong");
