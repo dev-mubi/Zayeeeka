@@ -387,8 +387,8 @@ const ADMIN_TO = process.env.ADMIN_TO || process.env.SMTP_USER;
 // SINGLETON transporter — IMPORTANT: use hostname, prefer IPv4, STARTTLS
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com", // hostname (cert matches this)
-  port: 587,
-  secure: false, // STARTTLS
+  port: 465,
+  secure: true, // STARTTLS
   requireTLS: true,
   family: 4, // prefer IPv4 (Railway friendly)
   auth: {
