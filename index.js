@@ -14,7 +14,12 @@ const WeatherLog = require("./WeatherLog");
 
 require("dotenv").config();
 
-// ---
+// Prefer IPv4 across Node DNS (avoids IPv6 egress issues on some PaaS like Railway)
+const dns = require("dns");
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder("ipv4first");
+}
+
 const bcrypt = require("bcrypt");
 const saltRounds = 11;
 const validator = require("validator");
@@ -129,20 +134,20 @@ app.get("/analytics", async (req, res) => {
       five = 0;
 
     for (let i = 0; i < feedbacks.length; i++) {
-      const rating = parseInt(feedbacks[i].rating);
-      if (rating === 1) {
+      const r = parseInt(feedbacks[i].rating, 10);
+      if (r === 1) {
         one++;
         total += 1;
-      } else if (rating === 2) {
+      } else if (r === 2) {
         two++;
         total += 2;
-      } else if (rating === 3) {
+      } else if (r === 3) {
         three++;
         total += 3;
-      } else if (rating === 4) {
+      } else if (r === 4) {
         four++;
         total += 4;
-      } else if (rating === 5) {
+      } else if (r === 5) {
         five++;
         total += 5;
       }
@@ -152,7 +157,7 @@ app.get("/analytics", async (req, res) => {
       feedbacks.length === 0 ? 0 : (total / feedbacks.length).toFixed(2);
     res.json({
       averageRating,
-      ratingCounts: { 1: one, 2: two, 3: four, 5: five, 3: three }, // keep keys explicit
+      ratingCounts: { 1: one, 2: two, 3: three, 4: four, 5: five },
     });
   } catch (err) {
     console.error("Error in /analytics:", err);
@@ -367,37 +372,68 @@ app.get("/api/mess", async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// EMAIL + VERIFICATION SECTION (Resend only)
-const { Resend } = require("resend");
+// EMAIL + VERIFICATION SECTION (Gmail SMTP via Nodemailer ONLY)
+const nodemailer = require("nodemailer");
 
-if (!process.env.RESEND_API_KEY) {
-  throw new Error("RESEND_API_KEY is missing. Add it in your env.");
+if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+  throw new Error(
+    "SMTP_USER/SMTP_PASS are missing. Set your Gmail address and 16-char App Password."
+  );
 }
-const resend = new Resend(process.env.RESEND_API_KEY);
-const ADMIN_TO = process.env.ADMIN_TO || "mobishahzaib@gmail.com";
 
+const FROM_NAME = process.env.FROM_NAME || "Portfolio";
+const ADMIN_TO = process.env.ADMIN_TO || process.env.SMTP_USER;
+
+// SINGLETON transporter — IMPORTANT: use hostname, prefer IPv4, STARTTLS
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com", // hostname (cert matches this)
+  port: 587,
+  secure: false, // STARTTLS
+  requireTLS: true,
+  family: 4, // prefer IPv4 (Railway friendly)
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS, // Gmail App Password
+  },
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 100,
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 30000,
+});
+
+// Optional: verify SMTP connectivity at boot (shows in logs)
+transporter.verify((err) => {
+  if (err) {
+    console.error("SMTP verify failed:", err?.response || err?.message || err);
+  } else {
+    console.log("SMTP ready to send");
+  }
+});
+
+// Central mailer used by routes above
 app.locals.mailer = {
-  async send({ to, subject, html, replyTo, fromName = "App" }) {
-    const fromHeader =
-      process.env.MAIL_FROM || `${fromName} <onboarding@resend.dev>`;
+  async send({ to, subject, html, replyTo, fromName = FROM_NAME }) {
+    const mailOptions = {
+      from: `"${fromName}" <${process.env.SMTP_USER}>`,
+      to, // string or array
+      subject,
+      html,
+      ...(replyTo ? { replyTo } : {}),
+    };
 
     try {
-      const resp = await resend.emails.send({
-        from: fromHeader,
-        to, // string or array
-        subject,
-        html,
-        ...(replyTo ? { replyTo } : {}),
-      });
-      console.log("Resend send OK:", resp?.data?.id || resp);
-      return resp;
+      const info = await transporter.sendMail(mailOptions);
+      console.log("SMTP send OK:", info && info.messageId);
+      return info;
     } catch (e) {
-      console.error("Resend send FAIL:", e?.message || e);
+      console.error("SMTP send FAIL:", e && (e.response || e.message || e));
       throw e;
     }
   },
 
-  async sendVerificationMail({ to, name, link, fromName = "App" }) {
+  async sendVerificationMail({ to, name, link, fromName = FROM_NAME }) {
     const html = `
   <div style="font-family:Arial, sans-serif; max-width:600px; margin:0 auto; padding:20px; background-color:#f9f9f9; border-radius:8px; color:#333;">
     <h2 style="color:#0b5ed7;">Welcome to Zayeeka</h2>
@@ -405,12 +441,12 @@ app.locals.mailer = {
     <p>Thank you for signing up! You're just one step away from activating your account.</p>
     <p>Please click the button below to verify your email:</p>
     <p style="text-align:center;">
-      <a href="\${link}" style="background:#0b5ed7; color:#fff; padding:12px 20px; border-radius:6px; text-decoration:none; display:inline-block; font-weight:bold;">
+      <a href="${link}" style="background:#0b5ed7; color:#fff; padding:12px 20px; border-radius:6px; text-decoration:none; display:inline-block; font-weight:bold;">
         Verify My Email
       </a>
     </p>
     <p>If the button doesn't work, copy and paste this link into your browser:</p>
-    <p style="word-break:break-all;"><code>\${link}</code></p>
+    <p style="word-break:break-all;"><code>${link}</code></p>
     <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;" />
     <p style="font-size:13px; color:#777; margin-top:20px; line-height:1.5;">
       This is a system-generated email. Please do not reply directly.<br/>
@@ -418,8 +454,7 @@ app.locals.mailer = {
     </p>
     <p style="margin-top:30px;">Best regards,<br><strong>Zayeeka Team</strong></p>
   </div>
-`.replace(/\${link}/g, link); // ensure literal replacement
-
+`;
     return await this.send({
       to,
       subject: "Verify your email",
@@ -494,7 +529,7 @@ app.post("/verify/:userId", async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
-// portfolio route — send 2 emails (admin + user). Each has its own try/catch so one failing doesn’t block the other.
+// portfolio route — send 2 emails (admin + user). Each has its own try/catch.
 app.post("/portfolio", async (req, res) => {
   try {
     const { name, email, message } = req.body;
@@ -534,14 +569,8 @@ app.post("/portfolio", async (req, res) => {
         A new message was submitted via the contact form. Details are below.
       </p>
       <table style="width:100%; border-collapse:collapse; margin:10px 0 6px 0;">
-        <tr>
-          <td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Name</td>
-          <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${name}</td>
-        </tr>
-        <tr>
-          <td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Email</td>
-          <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${email}</td>
-        </tr>
+        <tr><td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Name</td><td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${name}</td></tr>
+        <tr><td style="width:160px; padding:8px 10px; font-weight:600; color:#111827; background:#f8fafc; border:1px solid #e5e7eb;">Email</td><td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${email}</td></tr>
       </table>
       <div style="margin-top:14px;">
         <div style="font-weight:600; color:#111827; margin-bottom:6px; font-size:13px;">Message</div>
@@ -552,22 +581,13 @@ app.post("/portfolio", async (req, res) => {
       <div style="margin-top:18px;">
         <div style="font-weight:600; color:#0b5ed7; margin-bottom:8px; font-size:13px;">Submission Metadata</div>
         <table style="width:100%; border-collapse:collapse;">
-          <tr>
-            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">IP Address</td>
-            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${
-              req.ip
-            }</td>
-          </tr>
-          <tr>
-            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Browser</td>
-            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${req.get(
-              "User-Agent"
-            )}</td>
-          </tr>
-          <tr>
-            <td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Timestamp</td>
-            <td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${new Date().toLocaleString()}</td>
-          </tr>
+          <tr><td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">IP Address</td><td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${
+            req.ip
+          }</td></tr>
+          <tr><td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Browser</td><td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${req.get(
+            "User-Agent"
+          )}</td></tr>
+          <tr><td style="width:160px; padding:8px 10px; background:#f8fafc; font-weight:600; color:#111827; border:1px solid #e5e7eb;">Timestamp</td><td style="padding:8px 10px; color:#111827; border:1px solid #e5e7eb;">${new Date().toLocaleString()}</td></tr>
         </table>
       </div>
     </div>
@@ -594,7 +614,7 @@ app.post("/portfolio", async (req, res) => {
               <p style="margin:0 0 16px 0; font-size:15px; color:#333333;">
                 I review every submission personally. If your inquiry requires a response, I’ll get back to you at <strong>${email}</strong>.
               </p>
-              <div style="margin:18px 0; padding:12px 14px; background:#f8fafc; border:1px solid #e5e7eb; border-left:4px solid #0b5ed7; border-radius:6px; font-size:14px; color:#374151;">
+              <div style="margin:18px 0; padding:12px 14px; background:#f8fafc; border:1px solid #e6e8f0; border-left:4px solid #0b5ed7; border-radius:6px; font-size:14px; color:#374151;">
                 <div><strong>Submitted:</strong> ${new Date().toLocaleString()}</div>
               </div>
               <div style="margin-top:14px;">
@@ -611,18 +631,22 @@ app.post("/portfolio", async (req, res) => {
         </div>
       `;
 
-    // Send emails (admin + user) with separate try/catch so one failing doesn't block the other
+    // Send emails (admin + user) with separate try/catch
     try {
+      console.log("Admin notification target:", ADMIN_TO);
       await app.locals.mailer.send({
-        to: ADMIN_TO, // set ADMIN_TO env to your Gmail for reliability
+        to: ADMIN_TO,
         subject: "New Contact Form Submission - Portfolio Website",
         html: adminHtml,
-        fromName: "Portfolio",
-        replyTo: email, // so replying to admin noti goes to the user
+        fromName: FROM_NAME,
+        replyTo: email,
       });
       console.log("✅ Admin notification sent to:", ADMIN_TO);
     } catch (e) {
-      console.error("❌ Admin notification failed:", e?.message || e);
+      console.error(
+        "❌ Admin notification failed:",
+        e?.response || e?.message || e
+      );
     }
 
     try {
@@ -630,12 +654,15 @@ app.post("/portfolio", async (req, res) => {
         to: email,
         subject: "Confirmation: Your message has been received",
         html: userHtml,
-        replyTo: ADMIN_TO, // replies from the user go to you
-        fromName: "Portfolio",
+        replyTo: ADMIN_TO,
+        fromName: FROM_NAME,
       });
       console.log("✅ User confirmation sent to:", email);
     } catch (e) {
-      console.error("❌ User confirmation failed:", e?.message || e);
+      console.error(
+        "❌ User confirmation failed:",
+        e?.response || e?.message || e
+      );
     }
 
     return res.status(200).json({
@@ -645,6 +672,18 @@ app.post("/portfolio", async (req, res) => {
   } catch (err) {
     console.error("Error in /portfolio:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// Health endpoints (handy in prod)
+app.get("/health", (req, res) => res.status(200).send("OK"));
+app.get("/health/smtp", async (req, res) => {
+  try {
+    await transporter.verify();
+    res.status(200).send("OK");
+  } catch (e) {
+    res.status(503).send(`SMTP not ready: ${e?.message || e}`);
   }
 });
 
@@ -680,6 +719,7 @@ app.post("/weather", async (req, res) => {
 
 // -----------------------------------------------------------------------------
 // BOOT
-app.listen(5000, () => {
-  console.log("Server is running on port 5000");
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
